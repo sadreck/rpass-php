@@ -1,0 +1,36 @@
+RemotePassword PHP Script v%VERSION%
+
+Usage: rpass [action] [options] --verbose
+
+    add     Add a password to the local storage.
+            $ rpass add --name "UniqueNamePwd" --token1 "AaAaAaAaAa" --token2 "BbBbBbBbBb" --key "PublicKeyId" [--checksum "badc0de"]
+    view    View the saved data for a locally stored password.
+            $ rpass view --name "UniqueNamePwd"
+    delete  Delete locally stored password.
+            $ rpass delete --name "UniqueNamePwd"
+    list    List all locally stored passwords.
+            $ rpass list
+    config  Get/Set configuration settings.
+            To save a setting, specify both --name and --value:
+            $ rpass config --name SomeVariable --value SomeValue
+
+            To retrieve a setting, specify only the --name:
+            $ rpass config --name GetThisVariable
+
+            To list all settings:
+            $ rpass config --list
+    get     Retrieve encrypted password from remote hostname.
+            Get a password by name:
+            $ rpass get --name "UniqueNamePwd"
+
+            Get a password by its tokens:
+            $ rpass get --token1 "AaAaAaAaAa" --token2 "BbBbBbBbBb"
+
+            Specify its format, can be raw, json, xml, base64:
+            $ rpass get --name "UniqueNamePwd" --format json
+
+            Shorthand, but cannot be used with --format:
+            $ rpass "UniqueNamePwd"
+    clear   Remove all passwords from local storage.
+    help    This.
+    version Get the version of the current script.

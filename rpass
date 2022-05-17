@@ -1,0 +1,143 @@
+#!/usr/bin/env php
+<?php
+const __VERSION__ = '1.0.0';
+
+$src = [
+    'Logging.php',
+    'Config.php',
+    'CommandLine.php',
+    'PasswordStorage.php',
+    'HttpClient.php',
+    'PasswordValidator.php',
+    'PGP.php'
+];
+foreach ($src as $file) {
+    require_once(dirname(__FILE__) . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . $file);
+}
+
+// Remove the first element, that's the script name.
+array_shift($argv);
+if (count($argv) == 0) {
+    Logging::error("No arguments specified. Run help to see available options.");
+    exit(1);
+}
+
+$configFile = dirname(__FILE__) . DIRECTORY_SEPARATOR . "rpass.config";
+$defaultPasswordStorage = dirname(__FILE__) . DIRECTORY_SEPARATOR . "rpass.storage";
+try {
+    $config = new Config($configFile);
+    $arguments = new CommandLine($argv);
+    Logging::$verbose = $arguments->isVerbose();
+    $passwordStorage = new PasswordStorage($config->get('storage', $defaultPasswordStorage));
+    $httpClient = new HttpClient(
+        $config->get('hostname', 'www.remotepassword.com'),
+        $config->get('port', 443),
+        $config->get('https', true),
+        $config->get('method', 'post'),
+        $config->get('verifySSL', true)
+    );
+    $httpClient->setSendHostname($config->get('sendHostname', false));
+    $passwordValidator = new PasswordValidator();
+    $pgp = new PGP($config->get('gpgPath', '/usr/bin/gpg'));
+} catch (Exception $e) {
+    Logging::error($e->getMessage());
+    exit(1);
+}
+
+switch ($arguments->getAction()) {
+    case 'add':
+        $passwordStorage->add(
+            $arguments->getName(),
+            $arguments->getToken1(),
+            $arguments->getToken2(),
+            $arguments->getChecksum(),
+            $arguments->getKey()
+        );
+        Logging::info("Password {$arguments->getName()} added successfully");
+        break;
+    case 'clear':
+        $passwordStorage->clear();
+        Logging::info("All passwords have been removed from local storage");
+        break;
+    case 'config':
+        if ($arguments->isList()) {
+            $settings = $config->all();
+            $data = [['Name', 'Value']];
+            foreach ($settings as $name => $value) {
+                $data[] = [$name, $value];
+            }
+            Logging::table($data);
+        } elseif ($arguments->getValue() === null) {
+            // Getter
+            Logging::info($config->get($arguments->getName()));
+        } else {
+            // Setter
+            try {
+                $config->set($arguments->getName(), $arguments->getValue());
+                Logging::info("OK");
+            } catch (Exception $e) {
+                Logging::error($e->getMessage());
+                exit(1);
+            }
+        }
+        break;
+    case 'delete':
+        $passwordStorage->delete($arguments->getName());
+        Logging::info("Password {$arguments->getName()} deleted successfully");
+        break;
+    case 'get':
+        $password = $passwordStorage->getByName($arguments->getName());
+        if (empty($password)) {
+            // Don't display anything, just exit.
+            Logging::verbose("Could not find password: {$arguments->getName()}");
+            exit(1);
+        }
+        $data = $httpClient->fetch($password->token1, $password->token2, $arguments->getFormat());
+        $output = $passwordValidator->validate($password, $data, $arguments->getFormat());
+        if ($output === null) {
+            Logging::verbose("Password data validation failed");
+            exit(1);
+        }
+        $output = $pgp->decrypt($output, $password->key);
+        if ($output === null) {
+            Logging::verbose("Could not decrypt data using key: {$password->key}");
+            exit(1);
+        }
+        Logging::info($output, false);
+        break;
+    case 'list':
+        $passwords = $passwordStorage->all();
+        $data = [];
+        $i = 0;
+        foreach ($passwords as $password) {
+            if (count($data) == 0) {
+                $data[] = array_merge(['#'], array_keys($password));
+            }
+            $data[] = array_merge([++$i], array_values($password));
+        }
+        Logging::table($data);
+        break;
+    case 'view':
+        $password = $passwordStorage->getByName($arguments->getName());
+        if (empty($password)) {
+            Logging::info("Password {$arguments->getName()} not found");
+        } else {
+            $password = (array)$password;
+            Logging::table(
+                [
+                    array_keys($password),
+                    array_values($password)
+                ]
+            );
+        }
+        break;
+    case 'help':
+        $help = file_get_contents(dirname(__FILE__) . DIRECTORY_SEPARATOR . 'help.txt');
+        $help = str_replace('%VERSION%', __VERSION__, $help);
+        Logging::info($help);
+        break;
+    case 'version':
+        Logging::info(__VERSION__);
+        break;
+}
+exit(0);
